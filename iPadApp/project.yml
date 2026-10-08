@@ -1,0 +1,39 @@
+name: DeriveMath
+configs:
+  Debug: debug
+  Release: release
+options:
+  bundleIdPrefix: au.com.derive
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+  minimumXcodeGenVersion: 2.46.0
+  xcodeVersion: "16.0"
+targets:
+  DeriveMath:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: DeriveMath
+        excludes:
+          - Resources/Info.plist
+    settings:
+      base:
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.derive.math
+        PRODUCT_NAME: DeriveMath
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: DeriveMath/Resources/Info.plist
+        TARGETED_DEVICE_FAMILY: 2
+        SUPPORTS_MACCATALYST: false
+        SWIFT_VERSION: 5.0
+    scheme:
+      build:
+        targets:
+          DeriveMath: all
+      run:
+        config: Debug
+      archive:
+        config: Release

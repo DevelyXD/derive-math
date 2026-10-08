@@ -1,0 +1,127 @@
+name: Build unsigned iPad IPA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Test Windows AI backend
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: AIBackend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: AIBackend/requirements-dev.txt
+      - name: Install backend test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+      - name: Run backend tests
+        run: python -m pytest -q
+
+  build-ios:
+    name: Compile native iPad app
+    needs: backend-tests
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      DERIVED_DATA: ${{ runner.temp }}/DeriveMathDerivedData
+      IPA_PATH: ${{ github.workspace }}/DeriveMath-unsigned.ipa
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Reject accidentally committed private files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)(\.env|library\.json)$|\.(p12|pfx|mobileprovision|cer|ipa)$|(^|/)(Notebooks|Exports)/'; then
+            echo "Private data, credentials, signing files, or generated IPAs must not be committed."
+            exit 1
+          fi
+
+      - name: Show Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: iPadApp
+        run: |
+          xcodegen generate
+          xcodebuild -list -project DeriveMath.xcodeproj
+
+      - name: Compile unsigned iPad application
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project iPadApp/DeriveMath.xcodeproj \
+            -scheme DeriveMath \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build | tee build-ios.log
+
+      - name: Package and validate unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$DERIVED_DATA/Build/Products/Release-iphoneos/DeriveMath.app"
+          test -d "$app"
+          test -f "$app/DeriveMath"
+
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          test "$bundle_id" = 'au.com.derive.math'
+
+          package_root="$RUNNER_TEMP/derive-package-$GITHUB_RUN_ID"
+          mkdir -p "$package_root/Payload"
+          cp -R "$app" "$package_root/Payload/DeriveMath.app"
+          ditto -c -k --sequesterRsrc --keepParent "$package_root/Payload" "$IPA_PATH"
+
+          unzip -t "$IPA_PATH"
+          unzip -l "$IPA_PATH" | grep 'Payload/DeriveMath.app/DeriveMath'
+          shasum -a 256 "$IPA_PATH" > "$IPA_PATH.sha256"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: DeriveMath-unsigned-${{ github.run_number }}
+          path: |
+            DeriveMath-unsigned.ipa
+            DeriveMath-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Xcode log if compilation fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: DeriveMath-build-log-${{ github.run_number }}
+          path: build-ios.log
+          if-no-files-found: ignore
+          retention-days: 7
