@@ -38,8 +38,6 @@ jobs:
     runs-on: macos-15
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
-      DERIVED_DATA: ${{ runner.temp }}/DeriveMathDerivedData
-      IPA_PATH: ${{ github.workspace }}/DeriveMath-unsigned.ipa
     steps:
       - uses: actions/checkout@v7
 
@@ -78,7 +76,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath "$RUNNER_TEMP/DeriveMathDerivedData" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -91,7 +89,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app="$DERIVED_DATA/Build/Products/Release-iphoneos/DeriveMath.app"
+          app="$RUNNER_TEMP/DeriveMathDerivedData/Build/Products/Release-iphoneos/DeriveMath.app"
+          ipa="$GITHUB_WORKSPACE/DeriveMath-unsigned.ipa"
           test -d "$app"
           test -f "$app/DeriveMath"
 
@@ -101,11 +100,11 @@ jobs:
           package_root="$RUNNER_TEMP/derive-package-$GITHUB_RUN_ID"
           mkdir -p "$package_root/Payload"
           cp -R "$app" "$package_root/Payload/DeriveMath.app"
-          ditto -c -k --sequesterRsrc --keepParent "$package_root/Payload" "$IPA_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$package_root/Payload" "$ipa"
 
-          unzip -t "$IPA_PATH"
-          unzip -l "$IPA_PATH" | grep 'Payload/DeriveMath.app/DeriveMath'
-          shasum -a 256 "$IPA_PATH" > "$IPA_PATH.sha256"
+          unzip -t "$ipa"
+          unzip -l "$ipa" | grep 'Payload/DeriveMath.app/DeriveMath'
+          shasum -a 256 "$ipa" > "$ipa.sha256"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v7
